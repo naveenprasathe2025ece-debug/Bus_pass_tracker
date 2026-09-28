@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BusPass - Student</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header class="top">
+  <h1>BusPass - Student Portal</h1>
+  <div class="who"><span id="who"></span><button class="secondary small" onclick="Auth.logout()">Logout</button></div>
+</header>
+<main>
+  <div id="msg" class="msg hidden"></div>
+
+  <div id="activePass" class="card hidden"></div>
+
+  <div class="card">
+    <h2 id="formTitle">Apply for a Bus Pass</h2>
+    <form id="appForm">
+      <div class="grid">
+        <div><label for="route">Route</label><select id="route" required></select></div>
+        <div><label for="boarding">Boarding point</label><input id="boarding" required maxlength="100"></div>
+        <div><label for="photo">Photo reference (file name or URL)</label><input id="photo" required maxlength="255" placeholder="e.g. photos/22CS101.jpg"></div>
+      </div>
+      <button type="submit" id="submitBtn">Submit application</button>
+      <button type="button" class="secondary hidden" id="cancelEdit">Cancel edit</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>My Applications</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Route</th><th>Boarding</th><th>Photo ref</th><th>Status</th><th>Remark / Reason</th><th>Pass</th><th>Validity</th><th>Applied</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="/js/app.js"></script>
+<script>
+  let routes = [], apps = [], editingId = null;
+  const msg = document.getElementById('msg');
+
+  (async function init() {
+    if (!requireRole('STUDENT')) return;
+    document.getElementById('who').textContent = Auth.user.name;
+    await load();
+  })();
+
+  async function load() {
+    try {
+      routes = await api('/api/routes');
+      apps = await api('/api/applications/my');
+      renderRoutes(); renderActive(); renderApps();
+    } catch (e) { showMessage(msg, errorText(e), 'error'); }
+  }
+
+  function renderRoutes() {
+    const sel = document.getElementById('route');
+    const keep = sel.value;
+    sel.innerHTML = routes.map(r => '<option value="' + esc(r.id) + '">' + esc(r.routeNumber) + ' - ' + esc(r.startPoint)
+      + ' to ' + esc(r.endPoint) + ' (Rs. ' + esc(r.fare) + ')</option>').join('');
+    if (keep) sel.value = keep;
+  }
+
+  function renderActive() {
+    const box = document.getElementById('activePass');
+    const active = apps.find(a => a.status === 'APPROVED' && a.passState === 'ACTIVE');
+    if (!active) { box.classList.add('hidden'); return; }
+    box.className = 'card active-pass';
+    box.innerHTML = '<h2>Your Active Pass: ' + esc(active.passNumber) + '</h2>'
+      + '<p>Route ' + esc(active.routeNumber) + ' (' + esc(active.routeName) + '), boarding at ' + esc(active.boardingPoint) + '</p>'
+      + '<p>Valid <b>' + fmtDate(active.validFrom) + '</b> to <b>' + fmtDate(active.validTo) + '</b> - ' + esc(active.daysToExpiry) + ' day(s) left</p>'
+      + '<p class="muted">You can apply for a new pass after this one expires.</p>';
+  }
+
+  function renderApps() {
+    const body = document.getElementById('rows');
+    if (!apps.length) { body.innerHTML = '<tr><td colspan="10" class="muted">No applications yet.</td></tr>'; return; }
+    body.innerHTML = apps.map(a => {
+      const note = a.status === 'REJECTED'
+        ? esc(a.remark) + '<br><b>Reason:</b> ' + esc(a.rejectionReason) : esc(a.remark) || '-';
+      const validity = a.validFrom ? fmtDate(a.validFrom) + ' to ' + fmtDate(a.validTo) + '<br>' + (a.passState ? badge(a.passState) : '') : '-';
+      const actions = a.status === 'PENDING'
+        ? '<button class="small" onclick="startEdit(' + a.id + ')">Edit</button><button class="small danger" onclick="cancelApp(' + a.id + ')">Cancel</button>' : '';
+      return '<tr><td>' + esc(a.id) + '</td><td>' + esc(a.routeNumber) + '<br><span class="muted">' + esc(a.routeName) + '</span></td>'
+        + '<td>' + esc(a.boardingPoint) + '</td><td>' + esc(a.photoReference) + '</td><td>' + badge(a.status) + '</td>'
+        + '<td>' + note + '</td><td>' + (esc(a.passNumber) || '-') + '</td><td>' + validity + '</td><td>' + fmtDateTime(a.appliedAt)
+        + '</td><td>' + actions + '</td></tr>';
+    }).join('');
+  }
+
+  function resetForm() {
+    editingId = null;
+    document.getElementById('appForm').reset();
+    document.getElementById('formTitle').textContent = 'Apply for a Bus Pass';
+    document.getElementById('submitBtn').textContent = 'Submit application';
+    document.getElementById('cancelEdit').classList.add('hidden');
+  }
+
+  function startEdit(id) {
+    const a = apps.find(x => x.id === id);
+    if (!a) return;
+    editingId = id;
+    document.getElementById('route').value = a.routeId;
+    document.getElementById('boarding').value = a.boardingPoint;
+    document.getElementById('photo').value = a.photoReference;
+    document.getElementById('formTitle').textContent = 'Edit Application #' + id;
+    document.getElementById('submitBtn').textContent = 'Save changes';
+    document.getElementById('cancelEdit').classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  document.getElementById('cancelEdit').onclick = resetForm;
+
+  async function cancelApp(id) {
+    if (!confirm('Cancel application #' + id + '?')) return;
+    try { await api('/api/applications/' + id, { method: 'DELETE' }); showMessage(msg, 'Application cancelled.', 'success'); await load(); }
+    catch (e) { showMessage(msg, errorText(e), 'error'); }
+  }
+
+  document.getElementById('appForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const body = JSON.stringify({
+      routeId: Number(document.getElementById('route').value),
+      boardingPoint: document.getElementById('boarding').value,
+      photoReference: document.getElementById('photo').value
+    });
+    try {
+      if (editingId) { await api('/api/applications/' + editingId, { method: 'PUT', body }); showMessage(msg, 'Application updated.', 'success'); }
+      else { await api('/api/applications', { method: 'POST', body }); showMessage(msg, 'Application submitted. Track its status below.', 'success'); }
+      resetForm(); await load();
+    } catch (err) { showMessage(msg, errorText(err), 'error'); }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BusPass - Login</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header class="top"><h1>BusPass - Student Bus Pass Tracker</h1></header>
+<main class="auth-box">
+  <div id="msg" class="msg hidden"></div>
+  <div class="tabs">
+    <button id="tabLogin" class="active" type="button">Login</button>
+    <button id="tabRegister" type="button">Student Register</button>
+  </div>
+
+  <div class="card" id="loginCard">
+    <h2>Login</h2>
+    <form id="loginForm">
+      <label for="lEmail">Email</label>
+      <input id="lEmail" type="email" required>
+      <label for="lPassword">Password</label>
+      <input id="lPassword" type="password" required>
+      <button type="submit">Login</button>
+    </form>
+    <p class="muted">Admin demo login: admin@buspass.com / Admin@123</p>
+  </div>
+
+  <div class="card hidden" id="registerCard">
+    <h2>Student Registration</h2>
+    <form id="registerForm">
+      <label for="rName">Full name</label>
+      <input id="rName" required maxlength="100">
+      <label for="rReg">Register number</label>
+      <input id="rReg" required maxlength="30">
+      <label for="rDept">Department</label>
+      <input id="rDept" required maxlength="100">
+      <label for="rPhone">Mobile (10 digits)</label>
+      <input id="rPhone" required pattern="[6-9][0-9]{9}" maxlength="10">
+      <label for="rEmail">Email</label>
+      <input id="rEmail" type="email" required>
+      <label for="rPassword">Password (min 6 characters)</label>
+      <input id="rPassword" type="password" required minlength="6" maxlength="64">
+      <button type="submit">Create account</button>
+    </form>
+  </div>
+</main>
+
+<script src="/js/app.js"></script>
+<script>
+  const msg = document.getElementById('msg');
+  const loginCard = document.getElementById('loginCard');
+  const registerCard = document.getElementById('registerCard');
+
+  function go(user) {
+    location.href = user.role === 'ADMIN' ? '/admin.html' : '/student.html';
+  }
+  if (Auth.token && Auth.user) go(Auth.user);
+
+  function showTab(login) {
+    loginCard.classList.toggle('hidden', !login);
+    registerCard.classList.toggle('hidden', login);
+    document.getElementById('tabLogin').classList.toggle('active', login);
+    document.getElementById('tabRegister').classList.toggle('active', !login);
+    msg.classList.add('hidden');
+  }
+  document.getElementById('tabLogin').onclick = () => showTab(true);
+  document.getElementById('tabRegister').onclick = () => showTab(false);
+
+  document.getElementById('loginForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const r = await api('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email: document.getElementById('lEmail').value, password: document.getElementById('lPassword').value })
+      });
+      Auth.save(r); go(Auth.user);
+    } catch (err) { showMessage(msg, errorText(err), 'error'); }
+  });
+
+  document.getElementById('registerForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const r = await api('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: document.getElementById('rName').value,
+          registerNumber: document.getElementById('rReg').value,
+          department: document.getElementById('rDept').value,
+          phone: document.getElementById('rPhone').value,
+          email: document.getElementById('rEmail').value,
+          password: document.getElementById('rPassword').value
+        })
+      });
+      Auth.save(r); go(Auth.user);
+    } catch (err) { showMessage(msg, errorText(err), 'error'); }
+  });
+</script>
+</body>
+</html>
